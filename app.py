@@ -9,6 +9,7 @@ from functools import lru_cache
 import base64
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from translator import EnglishToChineseTranslator, TranslationBuffer
 
 # Suppress verbose INFO logs
 logging.basicConfig(level=logging.ERROR)
@@ -135,6 +136,9 @@ class CorrectionBuffer:
 audio_model = FasterWhisperASR(model_size="medium")
 audio_model.use_vad()
 
+# Initialize translation
+translator = EnglishToChineseTranslator()
+
 # Socket.IO event handlers
 @sio.event
 async def connect(sid, environ):
@@ -143,6 +147,9 @@ async def connect(sid, environ):
 @sio.event
 async def disconnect(sid):
     print(f'Client disconnected: {sid}')
+    # Clean up translation buffers
+    if hasattr(sio, 'translation_buffers') and sid in sio.translation_buffers:
+        del sio.translation_buffers[sid]
     
 @sio.event
 async def audio_data(sid, data):
@@ -160,6 +167,13 @@ async def audio_data(sid, data):
     if sid not in sio.correction_buffers:
         sio.correction_buffers[sid] = CorrectionBuffer(audio_model, chunk_size=8)
         
+    # Initialize translation buffer
+    if not hasattr(sio, 'translation_buffers'):
+        sio.translation_buffers = {}
+        
+    if sid not in sio.translation_buffers:
+        sio.translation_buffers[sid] = TranslationBuffer(translator)
+        
     # Add audio to buffer
     sio.correction_buffers[sid].add_audio(audio)
     
@@ -172,12 +186,31 @@ async def process_audio(sid, correction_buffer):
     # Process correction buffer with lock
     correction = await correction_buffer.process_chunk_async()
     if correction and correction["text"].strip():
+        # Emit transcription
         await sio.emit('transcription', {
             "type": "correction",
             "start": float(correction["start_time"]),
             "end": float(correction["end_time"]),
             "text": correction["text"]
         }, to=sid)
+        
+        # Process translation
+        if hasattr(sio, 'translation_buffers') and sid in sio.translation_buffers:
+            loop = asyncio.get_event_loop()
+            translated_text = await loop.run_in_executor(
+                executor,
+                sio.translation_buffers[sid].add_text,
+                correction["text"]
+            )
+            
+            if translated_text.strip():
+                await sio.emit('translation', {
+                    "type": "correction",
+                    "start": float(correction["start_time"]),
+                    "end": float(correction["end_time"]),
+                    "text": translated_text,
+                    "accumulated_original": sio.translation_buffers[sid].get_accumulated_text()
+                }, to=sid)
 
 @sio.event
 async def finish_streaming(sid):
@@ -195,15 +228,36 @@ async def finish_streaming(sid):
             if final_text.strip():
                 start_time = sio.correction_buffers[sid].processed_samples / 16000
                 end_time = start_time + len(remaining_audio) / 16000
+                
+                # Emit final transcription
                 await sio.emit('transcription', {
                     "type": "final",
                     "start": start_time,
                     "end": end_time,
                     "text": final_text
                 }, to=sid)
+                
+                # Emit final translation
+                if hasattr(sio, 'translation_buffers') and sid in sio.translation_buffers:
+                    final_translation = await loop.run_in_executor(
+                        executor,
+                        sio.translation_buffers[sid].add_text,
+                        final_text
+                    )
+                    
+                    if final_translation.strip():
+                        await sio.emit('translation', {
+                            "type": "final",
+                            "start": start_time,
+                            "end": end_time,
+                            "text": final_translation,
+                            "accumulated_original": sio.translation_buffers[sid].get_accumulated_text()
+                        }, to=sid)
         
         # Cleanup
         del sio.correction_buffers[sid]
+        if hasattr(sio, 'translation_buffers') and sid in sio.translation_buffers:
+            del sio.translation_buffers[sid]
 
 # Mount the Socket.IO app
 app.mount("/", socket_app)

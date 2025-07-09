@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>Live Audio Streaming with Correction</title>
+  <title>Live Audio Streaming with Translation</title>
   <style>
     /* Keep existing styles unchanged */
     .transcription-box {
@@ -19,8 +19,29 @@
       border-color: #34a853;
     }
     
+    #translation {
+      border-color: #4285f4;
+      background-color: #f8f9fa;
+    }
+    
     h3 {
       margin-bottom: 5px;
+    }
+    
+    .container {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    
+    .column {
+      flex: 1;
+    }
+    
+    .status-info {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
     }
   </style>
   <!-- Include Socket.IO client library -->
@@ -30,8 +51,19 @@
   <button id="start">Start Streaming</button>
   <div id="status">Idle</div>
   
-  <h3>Transcription:</h3>
-  <div id="transcript" class="transcription-box"></div>
+  <div class="container">
+    <div class="column">
+      <h3>Transcription (English):</h3>
+      <div id="transcript" class="transcription-box"></div>
+      <div id="transcript-status" class="status-info">Ready</div>
+    </div>
+    
+    <div class="column">
+      <h3>Translation (Chinese):</h3>
+      <div id="translation" class="transcription-box"></div>
+      <div id="translation-status" class="status-info">Ready</div>
+    </div>
+  </div>
   
   <script type="module">
     // Use relative URL or window.location to make it work on any host
@@ -40,9 +72,13 @@
     let audioContext;
     let micNode;
     const transcriptDiv = document.getElementById('transcript');
+    const translationDiv = document.getElementById('translation');
+    const transcriptStatus = document.getElementById('transcript-status');
+    const translationStatus = document.getElementById('translation-status');
     
     // Store chunks by timestamp
-    const chunks = [];
+    const transcriptionChunks = [];
+    const translationChunks = [];
     
     async function initStreaming() {
       try {
@@ -50,9 +86,13 @@
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         document.getElementById('status').textContent = 'Microphone access granted.';
 
-        // Clear transcript
+        // Clear transcript and translation
         transcriptDiv.textContent = '';
-        chunks.length = 0;
+        translationDiv.textContent = '';
+        transcriptionChunks.length = 0;
+        translationChunks.length = 0;
+        transcriptStatus.textContent = 'Ready';
+        translationStatus.textContent = 'Ready';
 
         // Initialize Socket.IO connection
         socket = io(SERVER_URL, { 
@@ -65,19 +105,38 @@
           console.log('Received transcription:', data);
           
           if (data.type === 'correction' || data.type === 'final') {
-            console.log('Received chunk:', data);
+            console.log('Received transcription chunk:', data);
             
             // Store the chunk
-            chunks.push(data);
+            transcriptionChunks.push(data);
             
             // Sort chunks by start time to ensure correct order
-            chunks.sort((a, b) => a.start - b.start);
+            transcriptionChunks.sort((a, b) => a.start - b.start);
             
             // Rebuild the transcript by appending all chunks
             transcriptDiv.textContent = '';
-            for (const chunk of chunks) {
+            for (const chunk of transcriptionChunks) {
               transcriptDiv.textContent += chunk.text + ' ';
             }
+            
+            // Update status
+            transcriptStatus.textContent = `${data.type === 'final' ? 'Final' : 'Processing'} - ${transcriptionChunks.length} chunks`;
+          }
+        });
+        
+        // Handle incoming translation data
+        socket.on('translation', (data) => {
+          console.log('Received translation:', data);
+          
+          if (data.type === 'correction' || data.type === 'final') {
+            console.log('Received translation chunk:', data);
+            
+            // For translation, we replace the entire content with the accumulated translation
+            // since each translation contains the full accumulated text
+            translationDiv.textContent = data.text;
+            
+            // Update status with original accumulated text info
+            translationStatus.textContent = `${data.type === 'final' ? 'Final' : 'Processing'} - Original: "${data.accumulated_original}"`;
           }
         });
         
@@ -120,6 +179,8 @@
         };
 
         document.getElementById('status').textContent = 'Streaming audio...';
+        transcriptStatus.textContent = 'Listening...';
+        translationStatus.textContent = 'Waiting for speech...';
       } catch (err) {
         console.error('Error setting up streaming:', err);
         document.getElementById('status').textContent = 'Error: ' + err.message;
@@ -141,6 +202,8 @@
         audioContext = null;
       }
       document.getElementById('status').textContent = 'Stopped';
+      transcriptStatus.textContent = 'Stopped';
+      translationStatus.textContent = 'Stopped';
     }
 
     document.getElementById('start').onclick = initStreaming;
