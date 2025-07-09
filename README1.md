@@ -1,1 +1,0 @@
-# whisper_live_transcription
