@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Live Audio Streaming with Correction</title>
+  <style>
+    /* Keep existing styles unchanged */
+    .transcription-box {
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      min-height: 150px;
+      width: 90%;
+      font-family: Arial, sans-serif;
+    }
+    
+    #transcript {
+      border-color: #34a853;
+    }
+    
+    h3 {
+      margin-bottom: 5px;
+    }
+  </style>
+  <!-- Include Socket.IO client library -->
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+  <button id="start">Start Streaming</button>
+  <div id="status">Idle</div>
+  
+  <h3>Transcription:</h3>
+  <div id="transcript" class="transcription-box"></div>
+  
+  <script type="module">
+    // Use relative URL or window.location to make it work on any host
+    const SERVER_URL = 'http://172.25.103.37:1090';
+    let socket;
+    let audioContext;
+    let micNode;
+    const transcriptDiv = document.getElementById('transcript');
+    
+    // Store chunks by timestamp
+    const chunks = [];
+    
+    async function initStreaming() {
+      try {
+        document.getElementById('status').textContent = 'Requesting microphone...';
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        document.getElementById('status').textContent = 'Microphone access granted.';
+
+        // Clear transcript
+        transcriptDiv.textContent = '';
+        chunks.length = 0;
+
+        // Initialize Socket.IO connection
+        socket = io(SERVER_URL, { 
+          transports: ['websocket'],
+          binaryType: 'arraybuffer'
+        });
+        
+        // Handle incoming transcription data
+        socket.on('transcription', (data) => {
+          console.log('Received transcription:', data);
+          
+          if (data.type === 'correction' || data.type === 'final') {
+            console.log('Received chunk:', data);
+            
+            // Store the chunk
+            chunks.push(data);
+            
+            // Sort chunks by start time to ensure correct order
+            chunks.sort((a, b) => a.start - b.start);
+            
+            // Rebuild the transcript by appending all chunks
+            transcriptDiv.textContent = '';
+            for (const chunk of chunks) {
+              transcriptDiv.textContent += chunk.text + ' ';
+            }
+          }
+        });
+        
+        socket.on('connect', () => {
+          console.log('Socket.IO connected');
+          document.getElementById('status').textContent = 'Socket connected.';
+        });
+        
+        socket.on('connect_error', (error) => {
+          console.error('Socket.IO connection error', error);
+          document.getElementById('status').textContent = 'Socket error';
+        });
+        
+        socket.on('disconnect', () => {
+          console.log('Socket.IO disconnected');
+          document.getElementById('status').textContent = 'Socket closed';
+        });
+
+        // Wait for socket connection
+        if (!socket.connected) {
+          await new Promise(resolve => socket.on('connect', resolve));
+        }
+
+        document.getElementById('status').textContent = 'Initializing audio...';
+        audioContext = new AudioContext();  // use default sample rate
+
+        // Load worklet
+        await audioContext.audioWorklet.addModule('audio-processor.js');
+
+        const source = audioContext.createMediaStreamSource(stream);
+        micNode = new AudioWorkletNode(audioContext, 'pcm-resampler-processor');
+        source.connect(micNode);
+
+        micNode.port.onmessage = (event) => {
+          const float32Chunk = event.data; // already resampled
+          if (socket.connected) {
+            // Send audio data via Socket.IO
+            socket.emit('audio_data', float32Chunk.buffer);
+          }
+        };
+
+        document.getElementById('status').textContent = 'Streaming audio...';
+      } catch (err) {
+        console.error('Error setting up streaming:', err);
+        document.getElementById('status').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    // Clean up function when stopping
+    function stopStreaming() {
+      if (socket && socket.connected) {
+        socket.emit('finish_streaming');
+        socket.disconnect();
+      }
+      if (micNode) {
+        micNode.disconnect();
+        micNode = null;
+      }
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+      document.getElementById('status').textContent = 'Stopped';
+    }
+
+    document.getElementById('start').onclick = initStreaming;
+    
+    // Add cleanup on page unload
+    window.addEventListener('beforeunload', stopStreaming);
+  </script>
+</body>
+</html>
