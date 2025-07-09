@@ -1,175 +1,164 @@
-# Live Transcription for Meetings
+# Simple Live Whisper Transcription with Translation
 
-A real-time audio transcription system using FastAPI, Socket.IO, and Whisper for live meeting transcription. This application captures audio from your microphone and provides instant transcription using OpenAI's Whisper model.
+A **simple** real-time audio transcription and translation system using FastAPI, Socket.IO, and Whisper. This straightforward implementation provides live meeting transcription with instant translation support.
 
-## Features
+## Key Features
 
-- 🎤 **Real-time Audio Streaming**: Captures audio from microphone with Web Audio API
-- 🗣️ **Live Transcription**: Uses FasterWhisper for efficient real-time speech-to-text
-- 🔄 **Correction Buffer**: Implements chunked processing for improved accuracy
-- 🌐 **WebSocket Communication**: Uses Socket.IO for low-latency real-time communication
-- 📝 **Auto-correction**: Processes audio in chunks to provide corrected transcriptions
-- 🎯 **Voice Activity Detection (VAD)**: Filters out non-speech audio segments
+- 🎤 **Simple Audio Streaming**: Basic microphone capture with Web Audio API
+- 🗣️ **Streaming Whisper**: Real-time speech-to-text using FasterWhisper
+- 🌍 **Live Translation**: Instant translation to any supported language
+- ⚙️ **Easy Configuration**: Simple chunk size and model adjustments
+- 🔧 **Minimal Setup**: Just a few files, easy to understand and modify
 
-## Architecture
+## What Makes This Simple
 
-### Backend (app.py)
-- **FastAPI**: Web framework with ASGI support
-- **Socket.IO**: Real-time bidirectional communication
-- **FasterWhisper**: Efficient Whisper implementation for transcription
-- **CorrectionBuffer**: Handles audio chunking and processing
+This implementation focuses on **simplicity over complexity**:
+- **Single main file** (`app.py`) handles everything
+- **Configurable chunk size** (default: 8 seconds)
+- **Easy translation model switching** for different languages
+- **No complex buffering** - straightforward audio processing
+- **Minimal dependencies** - just the essentials
 
-### Frontend (index.html)
-- **Web Audio API**: Captures microphone audio
-- **AudioWorklet**: Processes and resamples audio to 16kHz
-- **Socket.IO Client**: Communicates with backend
-- **Real-time Display**: Shows transcription results instantly
+## Quick Configuration
 
-### Audio Processing (audio-processor.js)
-- **PCM Resampler**: Converts audio to 16kHz sample rate
-- **Buffering**: Manages audio chunks for streaming
-- **Worklet Processor**: Handles audio processing in separate thread
+### Adjust Chunk Size
+Change processing chunk size in `app.py`:
+```python
+# Default is 8 seconds - you can change this
+sio.correction_buffers[sid] = CorrectionBuffer(audio_model, chunk_size=8)
+```
+- **Smaller chunks** (2-4s): Faster response, less accuracy
+- **Larger chunks** (10-15s): Better accuracy, slower response
 
-## Installation
-
-1. **Clone the repository**:
-```bash
-git clone <repository-url>
-cd live-transcription-meetings
+### Change Translation Language
+Modify the translation model in `translator.py` for your target language:
+```python
+# Current: English to Chinese
+self.trg = "zh"  # Change to your target language
+self.model_name = f"Helsinki-NLP/opus-mt-{self.src}-{self.trg}"
 ```
 
-2. **Install Python dependencies**:
+**Supported language codes:**
+- `zh` - Chinese
+- `es` - Spanish  
+- `fr` - French
+- `de` - German
+- `ja` - Japanese
+- `ko` - Korean
+- `ru` - Russian
+- `ar` - Arabic
+- And many more...
+
+## Installation & Setup
+
+1. **Install dependencies**:
 ```bash
-pip install fastapi uvicorn python-socketio numpy faster-whisper
+pip install -r requirements.txt
 ```
 
-3. **Install PyTorch with CUDA support** (for GPU acceleration):
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-```
-
-## Usage
-
-1. **Start the server**:
+2. **Run the application**:
 ```bash
 python app.py
 ```
 
-2. **Open your browser** and navigate to:
+3. **Open browser**: Go to `http://localhost:1090`
+
+4. **Start transcribing**: Click "Start Streaming" and speak!
+
+## How It Works (Simple Overview)
+
+1. **Audio Capture**: Browser captures microphone audio
+2. **Audio Streaming**: Audio chunks sent via WebSocket to server
+3. **Whisper Processing**: FasterWhisper transcribes audio chunks
+4. **Translation**: Accumulated text gets translated in real-time
+5. **Display**: Results shown instantly in browser
+
+## File Structure
+
 ```
-http://localhost:1090
+whisper_live_transcription-translation/
+├── app.py                 # Main server (FastAPI + Socket.IO)
+├── translator.py          # Simple translation module
+├── audio-processor.js     # Audio processing worklet
+├── index.html            # Simple web interface
+├── requirements.txt      # Dependencies
+└── README.md            # This file
 ```
 
-3. **Grant microphone permissions** when prompted
+## Simple Customization Examples
 
-4. **Click "Start Streaming"** to begin transcription
+### Change Whisper Model Size
+In `app.py`:
+```python
+# Faster but less accurate
+audio_model = FasterWhisperASR(model_size="small")
 
-## Configuration
+# More accurate but slower
+audio_model = FasterWhisperASR(model_size="large")
+```
 
-### Model Settings
-- **Model Size**: Default is "medium" (can be changed to "tiny", "base", "small", "large")
-- **Language**: Auto-detection (can be set to specific language)
-- **Device**: CUDA for GPU acceleration (falls back to CPU)
-- **Compute Type**: float16 for better performance
+### Add New Translation Language
+In `translator.py`, create a new translator class:
+```python
+class EnglishToSpanishTranslator:
+    def __init__(self):
+        self.model_name = "Helsinki-NLP/opus-mt-en-es"
+        # ...rest is the same
+```
+
+### Modify Chunk Processing
+In `app.py`, adjust the `CorrectionBuffer`:
+```python
+# Process every 5 seconds instead of 8
+sio.correction_buffers[sid] = CorrectionBuffer(audio_model, chunk_size=5)
+```
+
+## Configuration Options
 
 ### Audio Settings
-- **Sample Rate**: 16kHz (required by Whisper)
-- **Chunk Size**: 8 seconds for correction buffer
-- **Buffer Size**: 4096 samples for audio processing
+- **Chunk Size**: 2-15 seconds (default: 8)
+- **Sample Rate**: 16kHz (fixed for Whisper)
+- **Model Size**: tiny, base, small, medium, large
 
-## Technical Details
+### Translation Settings
+- **Source Language**: Auto-detect or specify
+- **Target Language**: Any Helsinki-NLP supported language
+- **Translation Model**: Marian MT models
 
-### Audio Processing Pipeline
-1. **Capture**: Web Audio API captures microphone input
-2. **Resample**: AudioWorklet resamples to 16kHz
-3. **Stream**: Socket.IO sends audio chunks to backend
-4. **Buffer**: CorrectionBuffer accumulates audio data
-5. **Transcribe**: FasterWhisper processes audio chunks
-6. **Emit**: Transcription results sent back to frontend
+## Requirements
 
-### Correction System
-- Processes audio in overlapping chunks for better accuracy
-- Uses async locks to prevent race conditions
-- Handles remaining audio on stream finish
-- Provides both interim and final transcriptions
+- Python 3.8+
+- Modern web browser
+- Microphone access
+- Optional: CUDA for GPU acceleration
 
-## API Endpoints
+## Performance Notes
 
-### Socket.IO Events
-
-#### Client to Server
-- `audio_data`: Send audio chunk for transcription
-- `finish_streaming`: Signal end of audio stream
-
-#### Server to Client
-- `transcription`: Receive transcription results
-  - `type`: "correction" or "final"
-  - `start`: Start time in seconds
-  - `end`: End time in seconds
-  - `text`: Transcribed text
-
-## Performance Optimization
-
-- **GPU Acceleration**: Uses CUDA when available
-- **Async Processing**: Non-blocking audio processing
-- **Thread Pool**: Parallel processing for multiple clients
-- **VAD Filter**: Reduces processing of non-speech audio
-- **Chunked Processing**: Optimized for real-time performance
-
-## Browser Compatibility
-
-- **Chrome**: Full support
-- **Firefox**: Full support
-- **Safari**: Full support (requires HTTPS for microphone access)
-- **Edge**: Full support
-
-## Security Notes
-
-- Requires HTTPS for microphone access in production
-- CORS enabled for all origins (configure for production)
-- No audio data is stored permanently
-- Real-time processing only
+- **GPU recommended** for larger Whisper models
+- **Smaller chunks** = faster response but less context
+- **Larger chunks** = better accuracy but more delay
+- **Translation** adds ~100-500ms processing time
 
 ## Troubleshooting
 
-### Common Issues
+1. **No transcription**: Check microphone permissions
+2. **Slow processing**: Try smaller Whisper model or reduce chunk size
+3. **Translation errors**: Verify Helsinki-NLP model for your language pair
+4. **Connection issues**: Check WebSocket connection and firewall
 
-1. **Microphone not working**: Check browser permissions
-2. **Poor transcription quality**: Ensure good audio quality and minimize background noise
-3. **High CPU usage**: Consider using GPU acceleration or smaller model
-4. **Connection issues**: Check firewall settings and network connectivity
+## Simple Modifications
 
-### Performance Tips
+This codebase is designed to be **easily modifiable**:
 
-- Use headphones to reduce echo
-- Speak clearly and at moderate pace
-- Ensure stable internet connection
-- Close unnecessary applications to free up resources
-
-## Development
-
-### Running in Development Mode
-```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 1090
-```
-
-### Testing
-- Test with different microphones
-- Verify transcription accuracy
-- Check performance under load
-- Test connection stability
+- Want different language? Change model in `translator.py`
+- Need faster response? Reduce chunk size in `app.py`
+- Want better accuracy? Use larger Whisper model
+- Need custom UI? Modify `index.html`
 
 ## License
 
-This project is open source and available under the MIT License.
+MIT License - Simple and permissive for easy use and modification.
 
-## Contributing
+---
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## Support
-
-For issues and questions, please open an issue in the GitHub repository.
+*This is intentionally a simple implementation. For production use, consider adding error handling, authentication, and performance optimizations.*
